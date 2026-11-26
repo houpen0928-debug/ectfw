@@ -1,0 +1,13 @@
+#!/bin/bash
+# Cloud Shell 端执行：上传 vmsetup.sh 到 VM 并远程执行
+set -e
+cd ~/ectfw
+
+# SSH key 预生成（避免交互 passphrase 提示）
+if [ ! -f ~/.ssh/google_compute_engine ]; then
+  mkdir -p ~/.ssh
+  ssh-keygen -t rsa -b 2048 -f ~/.ssh/google_compute_engine -N '' -C cloudshell
+fi
+
+gcloud compute scp --quiet --zone=asia-east1-b --project=ecttwprod2 --tunnel-through-iap vmsetup.sh ect-tw-vm:/tmp/vmsetup.sh
+gcloud compute ssh --quiet --zone=asia-east1-b --project=ecttwprod2 --tunnel-through-iap ect-tw-vm --command='sudo bash /tmp/vmsetup.sh'
