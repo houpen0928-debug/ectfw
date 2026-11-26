@@ -1,0 +1,13 @@
+#!/bin/bash
+# Cloud Shell 端执行：上传 tar + vmdeploy.sh 到 VM 并远程执行
+set -e
+cd ~/ectfw
+
+if [ ! -f ~/.ssh/google_compute_engine ]; then
+  mkdir -p ~/.ssh
+  ssh-keygen -t rsa -b 2048 -f ~/.ssh/google_compute_engine -N '' -C cloudshell
+fi
+
+gcloud compute scp --quiet --zone=asia-east1-b --project=ecttwprod2 --tunnel-through-iap ect-tw-main.tar.gz ect-tw-vm:/tmp/app.tar.gz
+gcloud compute scp --quiet --zone=asia-east1-b --project=ecttwprod2 --tunnel-through-iap vmdeploy.sh ect-tw-vm:/tmp/vmdeploy.sh
+gcloud compute ssh --quiet --zone=asia-east1-b --project=ecttwprod2 --tunnel-through-iap ect-tw-vm --command='bash /tmp/vmdeploy.sh'
