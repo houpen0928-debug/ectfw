@@ -1,0 +1,18 @@
+#!/bin/bash
+# 幂等重部署：原位解包（保留 .env 与 certs），只重建镜像
+set -e
+cd ~/app
+echo "=== guard: .env & certs must exist ==="
+test -f .env || { echo "MISSING .env — run deploy1 first"; exit 1; }
+test -f deploy/certs/origin.pem || { echo "MISSING certs — run deploy1 first"; exit 1; }
+echo "=== 1. in-place unpack (keeps .env & certs) ==="
+tar xzf ~/ectfw/ect-tw-main.tar.gz
+echo "=== 2. rebuild & restart ==="
+docker compose up -d --build
+echo "=== 3. wait and verify ==="
+sleep 20
+docker compose ps
+echo "--- health via local 443 ---"
+curl -sk https://127.0.0.1/health || echo "443 health FAIL"
+echo
+echo "DEPLOY2_DONE"
