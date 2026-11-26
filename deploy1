@@ -1,0 +1,38 @@
+#!/bin/bash
+# ECT-TW 上线部署：解包 → 自签证书 → 生成 .env → compose up → 验证
+set -e
+
+rm -rf ~/app && mkdir -p ~/app
+tar xzf ~/ectfw/ect-tw-main.tar.gz -C ~/app
+cd ~/app
+
+echo "=== 1. self-signed cert (后续换 Cloudflare Origin CA) ==="
+openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+  -keyout deploy/certs/origin.key -out deploy/certs/origin.pem \
+  -subj "/CN=twect.com.tw" 2>/dev/null
+ls -la deploy/certs/
+
+echo "=== 2. generate .env ==="
+cp .env.example .env
+sed -i "s/^ECT_NODE_ENV=.*/ECT_NODE_ENV=production/" .env
+sed -i "s/^ECT_SESSION_SECRET=.*/ECT_SESSION_SECRET=$(openssl rand -hex 32)/" .env
+sed -i "s/^ECT_ADMIN_TOKEN=.*/ECT_ADMIN_TOKEN=$(openssl rand -hex 24)/" .env
+sed -i "s/^ECT_PG_PASSWORD=.*/ECT_PG_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/^ECT_EDGE_PORT=.*/ECT_EDGE_PORT=80/" .env
+sed -i "s/^ECT_TLS_PORT=.*/ECT_TLS_PORT=443/" .env
+sed -i "s/^NGINX_CONF=.*/NGINX_CONF=ssl/" .env
+grep -q "^ECT_DYNAMIC_CODE_SECRET=" .env || true
+sed -i "s/^# ECT_DYNAMIC_CODE_SECRET=.*/ECT_DYNAMIC_CODE_SECRET=$(openssl rand -hex 24)/" .env
+grep -q "^ECT_DYNAMIC_CODE_SECRET=" .env || echo "ECT_DYNAMIC_CODE_SECRET=$(openssl rand -hex 24)" >> .env
+echo ".env generated (values not printed)"
+
+echo "=== 3. docker compose up ==="
+docker compose up -d --build
+
+echo "=== 4. wait and verify ==="
+sleep 20
+docker compose ps
+echo "--- health via local 443 ---"
+curl -sk https://127.0.0.1/health || echo "443 health FAIL"
+echo
+echo "DEPLOY_DONE"
