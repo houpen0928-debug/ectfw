@@ -39,11 +39,18 @@ mv ~/appnew ~/app
 cd ~/app
 
 echo "=== 3. compose up (container auto-runs db/migrate.js before server) ==="
-docker compose up -d --build
+# docker 權限 fallback：GCP VM 用戶預設不在 docker 群 → permission denied 時退回 sudo
+if docker ps >/dev/null 2>&1; then
+  DOCKER="docker"
+else
+  DOCKER="sudo docker"
+  echo "docker permission denied -> fallback to sudo docker"
+fi
+$DOCKER compose up -d --build
 
 echo "=== 4. wait and verify ==="
 sleep 25
-docker compose ps
+$DOCKER compose ps
 echo "--- read-only health via local 443 ---"
 curl -sk --max-time 10 https://127.0.0.1/health || echo "health FAIL"
 echo
