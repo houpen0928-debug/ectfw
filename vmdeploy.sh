@@ -73,6 +73,9 @@ else
   echo "docker permission denied -> fallback to sudo docker"
 fi
 $DOCKER compose up -d --build
+# C.21.1 根因②（寫進腳本，不再事後手補）：單檔 bind mount 掛舊 inode，
+# ~/app 整目錄替換後容器內仍是舊 ssl.conf → 白名單不生效。
+$DOCKER compose up -d --force-recreate nginx
 
 echo "=== 4. wait and verify ==="
 sleep 25
@@ -82,12 +85,18 @@ curl -sk --max-time 10 https://127.0.0.1/health || echo "health FAIL"
 echo
 curl -sk --max-time 10 https://127.0.0.1/health/db || echo "health/db FAIL"
 echo
-echo "--- C.15/C.21 red-line self-check: write/admin endpoints MUST be 404 ---"
-echo "transfer create: $(curl -sk -o /dev/null -w '%{http_code}' -X POST --max-time 10 https://127.0.0.1/api/transfer/create)"
-echo "admin static:    $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://127.0.0.1/admin)"
-echo "verify static:   $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://127.0.0.1/verify)"
-echo "public esg:      $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://127.0.0.1/api/public/esg)"
-echo "--- C.21 階段1 白名單自檢 ---"
+echo "--- C.22 red-line self-check: 其餘寫／後台端點 MUST be 404 ---"
+echo "admin static:    $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://127.0.0.1/admin)   (須 404)"
+echo "verify static:   $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://127.0.0.1/verify)   (須 404)"
+echo "public esg:      $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://127.0.0.1/api/public/esg)   (須 200)"
 echo "auth start:      $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://127.0.0.1/api/auth/line/start)   (302=secret 已帶入／503=fail-closed)"
-echo "auth me no-cookie: $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://127.0.0.1/api/auth/me)   (須 401)"
+echo "--- C.22 階段2-1：三種身分對撞（合法 session 由容器內即時簽發，值不輸出）---"
+SID=$($DOCKER compose exec -T app node -e "const S=require('./src/auth/session');process.stdout.write(S.issueSession({uid:1,secret:process.env.ECT_SESSION_SECRET}))" 2>/dev/null)
+if [ -n "$SID" ]; then echo "session: generated OK (len=${#SID})"; else echo "session: GENERATION FAILED"; fi
+echo "auth me  no-cookie: $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://127.0.0.1/api/auth/me)   (須 401)"
+echo "auth me  valid:     $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 -H "Cookie: ect_sid=$SID" https://127.0.0.1/api/auth/me)   (須 200)"
+echo "auth me  forged:    $(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 -H 'Cookie: ect_sid=forged' https://127.0.0.1/api/auth/me)   (須 401)"
+echo "transfer no-cookie: $(curl -sk -o /dev/null -w '%{http_code}' -X POST --max-time 10 https://127.0.0.1/api/transfer/create)   (須 401，不再是 404)"
+echo "transfer valid:     $(curl -sk -o /dev/null -w '%{http_code}' -X POST --max-time 10 -H "Cookie: ect_sid=$SID" -H 'Content-Type: application/json' -d '{}' https://127.0.0.1/api/transfer/create)   (須 409=BAD_TICKET_ID)"
+echo "transfer forged:    $(curl -sk -o /dev/null -w '%{http_code}' -X POST --max-time 10 -H 'Cookie: ect_sid=forged' https://127.0.0.1/api/transfer/create)   (須 401)"
 echo "VM_DEPLOY_DONE"
